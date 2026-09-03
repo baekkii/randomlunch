@@ -49,28 +49,12 @@ KU_ALIAS_MAP = {
     "하스": "하나스퀘어"
 }
 
-# 카카오 지도에 장소명이 없거나 타지역 결과로 오검색되는 건물들의 확정 좌표 정의
-EXACT_LOCATION_FALLBACK = {
-    "신공학관": {
-        "name": "고려대학교 자연계캠퍼스 신공학관",
-        "address": "서울 성북구 안암로 145 (안암동5가 136-1)",
-        "lat": 37.584145,
-        "lon": 127.027012
-    },
-    "공학관": {
-        "name": "고려대학교 자연계캠퍼스공학관",
-        "address": "서울 성북구 안암로 145",
-        "lat": 37.584852,
-        "lon": 127.027425
-    }
-}
-
 # 고려대학교 서울캠퍼스 주요 건물 목록 하드코딩
 KU_SEOUL_BUILDINGS = [
     "본관", "중앙도서관", "대학원도서관", "백주년기념삼성관", "LG-POSCO경영관", "현대자동차경영관",
     "경영본관", "인문관", "서관", "청산MK문화관", "교수회관", "정경관", "우당교양관", "문과대학", "교양관",
     "정경대학", "법학관", "법학관신관", "CJ법학관", "해송법학도서관", "신법학관",
-    "아산이학관", "이학관별관", "공학관", "신공학관", "창의관", "미래융합기술관", "산학관", "하나스퀘어",
+    "아산이학관", "이학관별관", "공학관", "창의관", "미래융합기술관", "산학관", "하나스퀘어",
     "과학도서관", "생명과학관", "생명과학관서관", "생명과학관동관", "애기능학생회관", "노벨광장",
     "의과대학", "의학도서관", "간호대학", "보건과학관",
     "학생회관", "민주광장", "중앙광장", "중광", "사범대학본관", "사범대학신관", "운초우선교육관",
@@ -89,68 +73,34 @@ PRESET_LOCATIONS = {
 
 def search_location_coords(keyword: str):
     cleaned_keyword = keyword.strip()
-
-    # 1. 줄임말 치환
+    
+    # 1. 줄임말/특정 단어 치환
     for alias, formal in KU_ALIAS_MAP.items():
         if alias in cleaned_keyword:
             cleaned_keyword = cleaned_keyword.replace(alias, formal)
             break
 
-    # 2. 타지역(부산, 관악산 등) 오검색 방지: 긴 단어부터 검사하여 확정 좌표 즉시 반환
-    for key in sorted(EXACT_LOCATION_FALLBACK.keys(), key=len, reverse=True):
-        if key in cleaned_keyword:
-            fallback = EXACT_LOCATION_FALLBACK[key]
-            return {
-                "place_name": fallback["name"],
-                "address": fallback["address"],
-                "lat": fallback["lat"],
-                "lon": fallback["lon"]
-            }
-
-    # 3. 그 외 고려대 건물 목록 처리 (긴 단어부터 매칭)
-    sorted_buildings = sorted(KU_SEOUL_BUILDINGS, key=len, reverse=True)
-    for bldg in sorted_buildings:
+    # 2. 고려대학교 서울캠퍼스 건물 명칭 매칭 시 '고려대학교 + 건물 명칭'으로 보정
+    for bldg in KU_SEOUL_BUILDINGS:
         if bldg in cleaned_keyword and "고려대" not in cleaned_keyword:
             cleaned_keyword = f"고려대학교 {cleaned_keyword}"
             break
 
     url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-    
-    # 고려대 안암캠퍼스 중심 좌표 가중치 부여
-    params = {
-        "query": cleaned_keyword,
-        "size": 5,
-        "x": "127.0326",
-        "y": "37.5894"
-    }
-
+    params = {"query": cleaned_keyword, "size": 1}
     try:
         res = requests.get(url, headers=HEADERS, params=params)
         res.raise_for_status()
         docs = res.json().get("documents", [])
-
-        # 성북구/안암동 등 고려대 인근 결과 우선 채택
-        for doc in docs:
-            addr = doc.get("road_address_name", "") or doc.get("address_name", "")
-            if "성북구" in addr or "동대문구" in addr:
-                return {
-                    "place_name": doc.get("place_name"),
-                    "address": addr,
-                    "lat": float(doc.get("y")),
-                    "lon": float(doc.get("x"))
-                }
-
-        if docs:
-            target = docs[0]
-            return {
-                "place_name": target.get("place_name"),
-                "address": target.get("road_address_name") or target.get("address_name"),
-                "lat": float(target.get("y")),
-                "lon": float(target.get("x"))
-            }
-
-        return None
-
+        if not docs:
+            return None
+        target = docs[0]
+        return {
+            "place_name": target.get("place_name"),
+            "address": target.get("road_address_name") or target.get("address_name"),
+            "lat": float(target.get("y")),
+            "lon": float(target.get("x"))
+        }
     except Exception:
         return None
 
@@ -201,12 +151,13 @@ selected_preset = st.radio("선택", options=["직접 입력"] + list(PRESET_LOC
 radius_option = st.radio("검색 반경", options=[300, 500, 1000, "직접 입력"], format_func=lambda x: f"{x}m" if isinstance(x, int) else x, horizontal=True, index=1)
 
 if radius_option == "직접 입력":
-    custom_radius = st.number_input("직접 입력 (단위: m)", min_value=50, max_value=20000, value=500, step=50)
+    custom_radius = st.number_input("직접 입력 (단위: m)", min_value=50, max_value=5000, value=500, step=50)
     radius_choice = custom_radius
 else:
     radius_choice = radius_option
 
 if st.button("🎲 식당 추천받기", type="primary"):
+    # 프리셋 선택 여부에 따른 실제 검색어 지정
     if selected_preset != "직접 입력":
         actual_keyword = PRESET_LOCATIONS[selected_preset]
     else:
