@@ -151,7 +151,7 @@ selected_preset = st.radio("선택", options=["직접 입력"] + list(PRESET_LOC
 radius_option = st.radio("검색 반경", options=[300, 500, 1000, "직접 입력"], format_func=lambda x: f"{x}m" if isinstance(x, int) else x, horizontal=True, index=1)
 
 if radius_option == "직접 입력":
-    custom_radius = st.number_input("직접 입력", min_value=50, max_value=5000, value=500, step=50)
+    custom_radius = st.number_input("직접 입력", min_value=50, max_value=5000, value=500, step=50, format="%d")
     radius_choice = custom_radius
 else:
     radius_choice = radius_option
