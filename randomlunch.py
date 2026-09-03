@@ -29,16 +29,37 @@ FOOD_SEARCH_CATEGORIES = [
 
 EXCLUDE_CATEGORY_KEYWORDS = ["간이주점", "호프", "술집", "포장마차", "바(BAR)", "이자카야"]
 
+# 줄임말 및 특정 단어 매핑 딕셔너리
+KU_ALIAS_MAP = {
+    "과도": "과학도서관",
+    "중도": "중앙도서관",
+    "현차관": "현대자동차경영관",
+    "엘포관": "LG-POSCO경영관",
+    "이학관": "아산이학관",
+    "구법": "법학관",
+    "신법": "법학관신관",
+    "씨법": "CJ법학관",
+    "중광": "중앙광장",
+    "학관": "학생회관",
+    "교양관": "우당교양관",
+    "교육관": "운초우선교육관",
+    "서관": "문과대학",
+    "법학도서관": "해송법학도서관",
+    "법도": "해송법학도서관",
+    "하스": "하나스퀘어"
+}
+
 # 고려대학교 서울캠퍼스 주요 건물 목록 하드코딩
 KU_SEOUL_BUILDINGS = [
     "본관", "중앙도서관", "대학원도서관", "백주년기념삼성관", "LG-POSCO경영관", "현대자동차경영관",
-    "경영본관", "인문관", "서관", "청산MK문화관", "교수회관", "정경대학", "우당교양관", "문과대학", "교양관",
-    "정경관", "법학관", "법학관신관", "CJ법학관", "해송법학도서관", "신법학관",
+    "경영본관", "인문관", "서관", "청산MK문화관", "교수회관", "정경관", "우당교양관", "문과대학", "교양관",
+    "정경대학", "법학관", "법학관신관", "CJ법학관", "해송법학도서관", "신법학관",
     "아산이학관", "이학관별관", "공학관", "창의관", "미래융합기술관", "산학관", "하나스퀘어",
     "과학도서관", "생명과학관", "생명과학관서관", "생명과학관동관", "애기능학생회관", "노벨광장",
     "의과대학", "의학도서관", "간호대학", "보건과학관",
-    "학생회관", "민주광장", "중앙광장", "사범대학본관", "사범대학신관", "운초우선교육관",
-    "동원글로벌리더십홀", "미래관", "홍보관", "체육관", "화정체육관", "녹지운동장", "안암학사", "프런티어관"
+    "학생회관", "민주광장", "중앙광장", "중광", "사범대학본관", "사범대학신관", "운초우선교육관",
+    "동원글로벌리더십홀", "미래관", "홍보관", "체육관", "화정체육관", "녹지운동장", "안암학사", "프런티어관",
+    "과도", "중도", "현차관", "엘포관", "이학관", "구법", "신법", "씨법", "학관", "교육관", "법학도서관", "법도", "하스"
 ]
 
 PRESET_LOCATIONS = {
@@ -52,7 +73,14 @@ PRESET_LOCATIONS = {
 
 def search_location_coords(keyword: str):
     cleaned_keyword = keyword.strip()
-    # 고려대학교 서울캠퍼스 건물 명칭 매칭 시 '고려대학교 + 건물 명칭'으로 보정
+    
+    # 1. 줄임말/특정 단어 치환
+    for alias, formal in KU_ALIAS_MAP.items():
+        if alias in cleaned_keyword:
+            cleaned_keyword = cleaned_keyword.replace(alias, formal)
+            break
+
+    # 2. 고려대학교 서울캠퍼스 건물 명칭 매칭 시 '고려대학교 + 건물 명칭'으로 보정
     for bldg in KU_SEOUL_BUILDINGS:
         if bldg in cleaned_keyword and "고려대" not in cleaned_keyword:
             cleaned_keyword = f"고려대학교 {cleaned_keyword}"
@@ -123,7 +151,7 @@ selected_preset = st.radio("선택", options=["직접 입력"] + list(PRESET_LOC
 radius_option = st.radio("검색 반경", options=[300, 500, 1000, "직접 입력"], format_func=lambda x: f"{x}m" if isinstance(x, int) else x, horizontal=True, index=1)
 
 if radius_option == "직접 입력":
-    custom_radius = st.number_input("직접 입력", min_value=50, max_value=5000, value=500, step=50)
+    custom_radius = st.number_input("직접 입력", min_value=50, max_value=5000, value=500, step=50, format="%dm")
     radius_choice = custom_radius
 else:
     radius_choice = radius_option
