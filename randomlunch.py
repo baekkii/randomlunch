@@ -93,18 +93,18 @@ radius_choice = st.radio("검색 반경", options=[300, 500, 1000], format_func=
 
 if st.button("🎲 식당 추천받기", type="primary"):
     if not location_input:
-        st.warning("위치를 입력해주세요.")
+        st.warning("위치를 입력해주세요")
     else:
         with st.spinner("주변 식당을 탐색하고 있습니다..."):
             loc = search_location_coords(location_input)
             if not loc:
-                st.error("입력한 위치를 찾을 수 없습니다. 정확한 명칭이나 주소를 입력해주세요.")
+                st.error("입력한 위치를 찾을 수 없습니다. 정확한 명칭이나 주소를 입력해주세요")
             else:
                 st.info(f"📍 기준점: **{loc['place_name']}** ({loc['address']})")
                 restaurants = fetch_all_restaurants(loc["lat"], loc["lon"], radius=radius_choice)
 
                 if not restaurants:
-                    st.warning("반경 내에 식사 가능한 음식점을 찾을 수 없습니다.")
+                    st.warning("반경 내에 식사 가능한 음식점을 찾을 수 없습니다")
                 else:
                     selected = random.choice(restaurants)
                     category_clean = selected.get("category_name", "").replace("음식점 > ", "")
