@@ -49,12 +49,18 @@ KU_ALIAS_MAP = {
     "하스": "하나스퀘어"
 }
 
+# 카카오 지도 검색에 불안정한 건물 사전 정의 (직통 쿼리 및 좌표 백업)
+EXACT_LOCATION_FALLBACK = {
+    "신공학관": {"query": "고려대학교 자연계캠퍼스 신공학관", "lat": 37.5841, "lon": 127.0270, "name": "고려대학교 신공학관", "address": "서울 성북구 안암로 145"},
+    "공학관": {"query": "고려대학교 서울캠퍼스 공학관", "lat": 37.5848, "lon": 127.0274, "name": "고려대학교 공학관", "address": "서울 성북구 안암로 145"}
+}
+
 # 고려대학교 서울캠퍼스 주요 건물 목록 하드코딩
 KU_SEOUL_BUILDINGS = [
     "본관", "중앙도서관", "대학원도서관", "백주년기념삼성관", "LG-POSCO경영관", "현대자동차경영관",
     "경영본관", "인문관", "서관", "청산MK문화관", "교수회관", "정경관", "우당교양관", "문과대학", "교양관",
     "정경대학", "법학관", "법학관신관", "CJ법학관", "해송법학도서관", "신법학관",
-    "아산이학관", "이학관별관", "신공학관", "공학관", "창의관", "미래융합기술관", "산학관", "하나스퀘어",
+    "아산이학관", "이학관별관", "공학관", "신공학관", "창의관", "미래융합기술관", "산학관", "하나스퀘어",
     "과학도서관", "생명과학관", "생명과학관서관", "생명과학관동관", "애기능학생회관", "노벨광장",
     "의과대학", "의학도서관", "간호대학", "보건과학관",
     "학생회관", "민주광장", "중앙광장", "중광", "사범대학본관", "사범대학신관", "운초우선교육관",
@@ -74,34 +80,70 @@ PRESET_LOCATIONS = {
 def search_location_coords(keyword: str):
     cleaned_keyword = keyword.strip()
     
-    # 1. 줄임말/특정 단어 치환
+    # 1. 줄임말 치환
     for alias, formal in KU_ALIAS_MAP.items():
         if alias in cleaned_keyword:
             cleaned_keyword = cleaned_keyword.replace(alias, formal)
             break
 
-    # 2. 고려대학교 서울캠퍼스 건물 명칭 매칭 시 '고려대학교 + 건물 명칭'으로 보정
-    for bldg in KU_SEOUL_BUILDINGS:
-        if bldg in cleaned_keyword and "고려대" not in cleaned_keyword:
-            cleaned_keyword = f"고려대학교 {cleaned_keyword}"
+    # 2. 신공학관 / 공학관 등 단독 검색 불안정 건물 사전 처리
+    for key, info in EXACT_LOCATION_FALLBACK.items():
+        if key in cleaned_keyword:
+            cleaned_keyword = info["query"]
             break
+    else:
+        # 3. 긴 단어부터 순회하여 "공학관"이 "신공학관"을 가로채는 문제 방지
+        sorted_buildings = sorted(KU_SEOUL_BUILDINGS, key=len, reverse=True)
+        for bldg in sorted_buildings:
+            if bldg in cleaned_keyword and "고려대" not in cleaned_keyword:
+                cleaned_keyword = f"고려대학교 {cleaned_keyword}"
+                break
 
     url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-    params = {"query": cleaned_keyword, "size": 1}
+    
+    # 1차 시도: 보정된 키워드로 검색
     try:
-        res = requests.get(url, headers=HEADERS, params=params)
+        res = requests.get(url, headers=HEADERS, params={"query": cleaned_keyword, "size": 5})
         res.raise_for_status()
         docs = res.json().get("documents", [])
-        if not docs:
-            return None
-        target = docs[0]
-        return {
-            "place_name": target.get("place_name"),
-            "address": target.get("road_address_name") or target.get("address_name"),
-            "lat": float(target.get("y")),
-            "lon": float(target.get("x"))
-        }
+        
+        # 2차 시도: 보정 키워드로 안 나오면 사용자가 입력한 원래 키워드로 재시도
+        if not docs and cleaned_keyword != keyword.strip():
+            res = requests.get(url, headers=HEADERS, params={"query": keyword.strip(), "size": 5})
+            res.raise_for_status()
+            docs = res.json().get("documents", [])
+
+        if docs:
+            target = docs[0]
+            return {
+                "place_name": target.get("place_name"),
+                "address": target.get("road_address_name") or target.get("address_name"),
+                "lat": float(target.get("y")),
+                "lon": float(target.get("x"))
+            }
+
+        # 3차 백업: API 검색 결과가 없을 경우 사전 정의 좌표 반환
+        for key, info in EXACT_LOCATION_FALLBACK.items():
+            if key in keyword.strip():
+                return {
+                    "place_name": info["name"],
+                    "address": info["address"],
+                    "lat": info["lat"],
+                    "lon": info["lon"]
+                }
+
+        return None
+
     except Exception:
+        # 통신 에러 발생 시 사전 정의 좌표 반환
+        for key, info in EXACT_LOCATION_FALLBACK.items():
+            if key in keyword.strip():
+                return {
+                    "place_name": info["name"],
+                    "address": info["address"],
+                    "lat": info["lat"],
+                    "lon": info["lon"]
+                }
         return None
 
 def fetch_all_restaurants(lat: float, lon: float, radius: int = 500):
@@ -151,13 +193,16 @@ selected_preset = st.radio("선택", options=["직접 입력"] + list(PRESET_LOC
 radius_option = st.radio("검색 반경", options=[300, 500, 1000, "직접 입력"], format_func=lambda x: f"{x}m" if isinstance(x, int) else x, horizontal=True, index=1)
 
 if radius_option == "직접 입력":
-    custom_radius = st.number_input("직접 입력 (단위: m)", min_value=50, max_value=5000, value=500, step=50, format="%d")
+    col_input, col_unit = st.columns([5, 1], vertical_alignment="bottom")
+    with col_input:
+        custom_radius = st.number_input("직접 입력", min_value=50, max_value=5000, value=500, step=50, format="%d")
+    with col_unit:
+        st.markdown("<p style='margin-bottom: 8px; font-weight: 500;'>m</p>", unsafe_allow_html=True)
     radius_choice = custom_radius
 else:
     radius_choice = radius_option
 
 if st.button("🎲 식당 추천받기", type="primary"):
-    # 프리셋 선택 여부에 따른 실제 검색어 지정
     if selected_preset != "직접 입력":
         actual_keyword = PRESET_LOCATIONS[selected_preset]
     else:
