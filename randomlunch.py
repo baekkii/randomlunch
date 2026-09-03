@@ -88,7 +88,7 @@ st.set_page_config(page_title="오늘 뭐 먹지?", page_icon="🍚")
 st.title("🍚 오늘 뭐 먹지? 식당 랜덤깡")
 st.caption("카카오맵 데이터를 기반으로 반경 내 식사 가능한 음식점을 무작위 추천합니다")
 
-location_input = st.text_input("기준 위치 (예: 고려대학교 미래관, 안암역, 안암로 145)", value="고려대학교 미래관")
+location_input = st.text_input("기준 위치 (예: 고려대학교 SK미래관, 안암역, 안암로 145)", value="고려대학교 SK미래관")
 radius_choice = st.radio("검색 반경", options=[300, 500, 1000], format_func=lambda x: f"{x}m", horizontal=True, index=1)
 
 if st.button("🎲 식당 추천받기", type="primary"):
