@@ -29,9 +29,37 @@ FOOD_SEARCH_CATEGORIES = [
 
 EXCLUDE_CATEGORY_KEYWORDS = ["간이주점", "호프", "술집", "포장마차", "바(BAR)", "이자카야"]
 
+# 고려대학교 서울캠퍼스 주요 건물 목록 하드코딩
+KU_SEOUL_BUILDINGS = [
+    "본관", "중앙도서관", "대학원도서관", "백주년기념삼성관", "LG-POSCO경영관", "현대자동차경영관",
+    "경영본관", "인문관", "서관", "청산MK문화관", "교수회관", "정경관", "우당교양관", "문과대학",
+    "정경대학", "법학관", "법학관신관", "CJ법학관", "해송법학도서관", "신법학관",
+    "아산이학관", "이학관별관", "공학관", "창의관", "미래융합기술관", "산학관", "하나스퀘어",
+    "과학도서관", "생명과학관", "생명과학관서관", "생명과학관동관", "애기능학생회관", "노벨광장",
+    "의과대학", "의학도서관", "간호대학", "보건과학관", "호상",
+    "학생회관", "민주광장", "중앙광장", "사범대학본관", "사범대학신관", "운초우선교육관",
+    "동원글로벌리더십홀", "미래관", "홍보관", "체육관", "화정체육관", "녹지운동장", "안암학사", "프런티어관"
+]
+
+PRESET_LOCATIONS = {
+    "정문": "고려대학교 서울캠퍼스 정문",
+    "정후": "고려대학교 정경관후문",
+    "법후": "고려대학교 CJ법학관",
+    "참살이길": "참살이길",
+    "오거리": "안암오거리",
+    "개운사길": "서울 성북구 개운사길 22-2"
+}
+
 def search_location_coords(keyword: str):
+    cleaned_keyword = keyword.strip()
+    # 고려대학교 서울캠퍼스 건물 명칭 매칭 시 '고려대학교 + 건물 명칭'으로 보정
+    for bldg in KU_SEOUL_BUILDINGS:
+        if bldg in cleaned_keyword and "고려대" not in cleaned_keyword:
+            cleaned_keyword = f"고려대학교 {cleaned_keyword}"
+            break
+
     url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-    params = {"query": keyword, "size": 1}
+    params = {"query": cleaned_keyword, "size": 1}
     try:
         res = requests.get(url, headers=HEADERS, params=params)
         res.raise_for_status()
@@ -86,25 +114,40 @@ def fetch_all_restaurants(lat: float, lon: float, radius: int = 500):
 st.set_page_config(page_title="오늘 뭐 먹지?", page_icon="🍚")
 
 st.title("🍚 오늘 뭐 먹지? 식당 랜덤깡")
-st.caption("카카오맵 데이터를 기반으로 반경 내 식사 가능한 음식점을 무작위 추천합니다")
+st.caption("카카오맵 데이터를 기반으로 반경 내 식사 가능한 음식점을 무작위 추천합니다.")
 
-location_input = st.text_input("기준 위치 (예: 고려대학교 SK미래관, 안암역, 안암로 145)", value="고려대학교 SK미래관")
-radius_choice = st.radio("검색 반경", options=[300, 500, 1000], format_func=lambda x: f"{x}m", horizontal=True, index=1)
+location_input = st.text_input("검색", value="")
+selected_preset = st.radio("선택", options=["직접 입력"] + list(PRESET_LOCATIONS.keys()), horizontal=True, label_visibility="collapsed")
+
+# 반경 선택 및 직접 입력
+radius_option = st.radio("검색 반경", options=[300, 500, 1000, "직접 입력"], format_func=lambda x: f"{x}m" if isinstance(x, int) else x, horizontal=True, index=1)
+
+if radius_option == "직접 입력":
+    custom_radius = st.number_input("직접 입력: {input}m", min_value=50, max_value=20000, value=500, step=50)
+    radius_choice = custom_radius
+else:
+    radius_choice = radius_option
 
 if st.button("🎲 식당 추천받기", type="primary"):
-    if not location_input:
-        st.warning("위치를 입력해주세요")
+    # 프리셋 선택 여부에 따른 실제 검색어 지정
+    if selected_preset != "직접 입력":
+        actual_keyword = PRESET_LOCATIONS[selected_preset]
+    else:
+        actual_keyword = location_input
+
+    if not actual_keyword:
+        st.warning("위치를 입력해주세요.")
     else:
         with st.spinner("주변 식당을 탐색하고 있습니다..."):
-            loc = search_location_coords(location_input)
+            loc = search_location_coords(actual_keyword)
             if not loc:
-                st.error("입력한 위치를 찾을 수 없습니다. 정확한 명칭이나 주소를 입력해주세요")
+                st.error("입력한 위치를 찾을 수 없습니다. 정확한 명칭이나 주소를 입력해주세요.")
             else:
                 st.info(f"📍 기준점: **{loc['place_name']}** ({loc['address']})")
                 restaurants = fetch_all_restaurants(loc["lat"], loc["lon"], radius=radius_choice)
 
                 if not restaurants:
-                    st.warning("반경 내에 식사 가능한 음식점을 찾을 수 없습니다")
+                    st.warning("반경 내에 식사 가능한 음식점을 찾을 수 없습니다.")
                 else:
                     selected = random.choice(restaurants)
                     category_clean = selected.get("category_name", "").replace("음식점 > ", "")
