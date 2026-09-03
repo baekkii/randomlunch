@@ -49,10 +49,20 @@ KU_ALIAS_MAP = {
     "하스": "하나스퀘어"
 }
 
-# 카카오 지도 검색에 불안정한 건물 사전 정의 (직통 쿼리 및 좌표 백업)
+# 카카오 지도에 장소명이 없거나 타지역 결과로 오검색되는 건물들의 확정 좌표 정의
 EXACT_LOCATION_FALLBACK = {
-    "신공학관": {"query": "고려대학교 서울캠퍼스 신공학관", "lat": 37.5841, "lon": 127.0270, "name": "고려대학교 신공학관", "address": "서울 성북구 안암로 145"},
-    "공학관": {"query": "고려대학교 서울캠퍼스 공학관", "lat": 37.5848, "lon": 127.0274, "name": "고려대학교 공학관", "address": "서울 성북구 안암로 145"}
+    "신공학관": {
+        "name": "고려대학교 신공학관",
+        "address": "서울 성북구 안암로 145 (안암동5가 136-1)",
+        "lat": 37.584145,
+        "lon": 127.027012
+    },
+    "공학관": {
+        "name": "고려대학교 공학관",
+        "address": "서울 성북구 안암로 145",
+        "lat": 37.584852,
+        "lon": 127.027425
+    }
 }
 
 # 고려대학교 서울캠퍼스 주요 건물 목록 하드코딩
@@ -79,39 +89,56 @@ PRESET_LOCATIONS = {
 
 def search_location_coords(keyword: str):
     cleaned_keyword = keyword.strip()
-    
+
     # 1. 줄임말 치환
     for alias, formal in KU_ALIAS_MAP.items():
         if alias in cleaned_keyword:
             cleaned_keyword = cleaned_keyword.replace(alias, formal)
             break
 
-    # 2. 신공학관 / 공학관 등 단독 검색 불안정 건물 사전 처리
-    for key, info in EXACT_LOCATION_FALLBACK.items():
+    # 2. 타지역(부산, 관악산 등) 오검색 방지: 긴 단어부터 검사하여 확정 좌표 즉시 반환
+    for key in sorted(EXACT_LOCATION_FALLBACK.keys(), key=len, reverse=True):
         if key in cleaned_keyword:
-            cleaned_keyword = info["query"]
+            fallback = EXACT_LOCATION_FALLBACK[key]
+            return {
+                "place_name": fallback["name"],
+                "address": fallback["address"],
+                "lat": fallback["lat"],
+                "lon": fallback["lon"]
+            }
+
+    # 3. 그 외 고려대 건물 목록 처리 (긴 단어부터 매칭)
+    sorted_buildings = sorted(KU_SEOUL_BUILDINGS, key=len, reverse=True)
+    for bldg in sorted_buildings:
+        if bldg in cleaned_keyword and "고려대" not in cleaned_keyword:
+            cleaned_keyword = f"고려대학교 {cleaned_keyword}"
             break
-    else:
-        # 3. 긴 단어부터 순회하여 "공학관"이 "신공학관"을 가로채는 문제 방지
-        sorted_buildings = sorted(KU_SEOUL_BUILDINGS, key=len, reverse=True)
-        for bldg in sorted_buildings:
-            if bldg in cleaned_keyword and "고려대" not in cleaned_keyword:
-                cleaned_keyword = f"고려대학교 {cleaned_keyword}"
-                break
 
     url = "https://dapi.kakao.com/v2/local/search/keyword.json"
     
-    # 1차 시도: 보정된 키워드로 검색
+    # 고려대 안암캠퍼스 중심 좌표 가중치 부여
+    params = {
+        "query": cleaned_keyword,
+        "size": 5,
+        "x": "127.0326",
+        "y": "37.5894"
+    }
+
     try:
-        res = requests.get(url, headers=HEADERS, params={"query": cleaned_keyword, "size": 5})
+        res = requests.get(url, headers=HEADERS, params=params)
         res.raise_for_status()
         docs = res.json().get("documents", [])
-        
-        # 2차 시도: 보정 키워드로 안 나오면 사용자가 입력한 원래 키워드로 재시도
-        if not docs and cleaned_keyword != keyword.strip():
-            res = requests.get(url, headers=HEADERS, params={"query": keyword.strip(), "size": 5})
-            res.raise_for_status()
-            docs = res.json().get("documents", [])
+
+        # 성북구/안암동 등 고려대 인근 결과 우선 채택
+        for doc in docs:
+            addr = doc.get("road_address_name", "") or doc.get("address_name", "")
+            if "성북구" in addr or "동대문구" in addr:
+                return {
+                    "place_name": doc.get("place_name"),
+                    "address": addr,
+                    "lat": float(doc.get("y")),
+                    "lon": float(doc.get("x"))
+                }
 
         if docs:
             target = docs[0]
@@ -122,28 +149,9 @@ def search_location_coords(keyword: str):
                 "lon": float(target.get("x"))
             }
 
-        # 3차 백업: API 검색 결과가 없을 경우 사전 정의 좌표 반환
-        for key, info in EXACT_LOCATION_FALLBACK.items():
-            if key in keyword.strip():
-                return {
-                    "place_name": info["name"],
-                    "address": info["address"],
-                    "lat": info["lat"],
-                    "lon": info["lon"]
-                }
-
         return None
 
     except Exception:
-        # 통신 에러 발생 시 사전 정의 좌표 반환
-        for key, info in EXACT_LOCATION_FALLBACK.items():
-            if key in keyword.strip():
-                return {
-                    "place_name": info["name"],
-                    "address": info["address"],
-                    "lat": info["lat"],
-                    "lon": info["lon"]
-                }
         return None
 
 def fetch_all_restaurants(lat: float, lon: float, radius: int = 500):
